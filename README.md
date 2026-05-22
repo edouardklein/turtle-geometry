@@ -25,6 +25,9 @@ the package:
 ```common-lisp
 
 (ql:quickload :turtle-geometry)
+;; Or:
+(require :asdf)
+(asdf:load-system :turtle-geometry)
 
 ```
 ### Usage
