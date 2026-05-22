@@ -30,11 +30,10 @@
     (set-program-matrices line-program :projection perspective-matrix))
 
   ;; qua entity component system
-  (let ((message-sys (make-instance 'turtle-message-system))
-        (animation-sys (make-instance 'turtle-animation-system))
+  (let ((animation-sys (make-instance 'turtle-animation-system))
         (newt-sys (make-instance 'newtonian-system))
         (draw-sys (make-instance 'turtle-drawer-system)))
-    (add-systems *world* message-sys animation-sys newt-sys draw-sys))
+    (add-systems *world* animation-sys newt-sys draw-sys))
   (make-turtle))
 
 (defmethod initialize-instance :after ((w turtle-window) &key &allow-other-keys)

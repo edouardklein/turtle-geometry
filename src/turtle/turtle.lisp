@@ -13,22 +13,10 @@
   (mass 0.0 :type real)
   (force 0.0 :type real))
 
-;; (defenum:defenum *turtle-message-types*
-;;     ((+turtle-move+ :turtle-move)
-;;      (+turtle-physics+ :turtle-physics)))
-
-;; (defstruct turtle-message
-;;   (type +turtle-move+ :type keyword)
-;;   (fn (lambda ()) :type function))
-
-;; a message is a function which takes parameters WORLD and ENTITY-ID
-(defstruct turtle-message-component
-  (message-list (make-array 8 :fill-pointer 0))
-  (message-lock (bt:make-lock "turtle-message-lock")))
-
 (defstruct turtle-animation-command
   kind
   amount
+  data
   target
   direction
   remaining
@@ -39,27 +27,6 @@
   active-command
   (command-list (make-array 8 :fill-pointer 0))
   (command-lock (bt:make-lock "turtle-animation-lock")))
-
-(defsystem turtle-message-system (turtle-message-component))
-
-(defmethod update-system ((world world)
-                          (system turtle-message-system)
-                          dt)
-  (system-do-with-components ((tmc turtle-message-component))
-      world system entity-id
-    (let ((messages nil))
-      (with-slots (message-list message-lock) tmc
-        (bt:with-lock-held (message-lock)
-          (when (plusp (length message-list))
-            (setf messages (copy-seq message-list)
-                  (fill-pointer message-list) 0))))
-      (when messages
-        (run-thread
-          (iter (for message in-vector messages)
-            (if (functionp message)
-                (funcall message world entity-id)
-                (warn "Sent entity ~a an invalid message type ~a~%"
-                      entity-id (type-of message)))))))))
 
 (defun normalize-turtle-speed (speed)
   (let ((value (cond ((integerp speed) speed)
@@ -122,6 +89,36 @@
   (bt:with-lock-held ((turtle-animation-component-command-lock component))
     (turtle-animation-component-speed component)))
 
+(defun execute-instant-command (command world entity-id)
+  "Execute a non-animated command immediately."
+  (ecase (turtle-animation-command-kind command)
+    (:pen-up
+     (setf (turtle-component-pen-down-p (ec world entity-id 'turtle-component)) nil))
+    (:pen-down
+     (setf (turtle-component-pen-down-p (ec world entity-id 'turtle-component)) t))
+    (:pen-toggle
+     (with-slots (pen-down-p) (ec world entity-id 'turtle-component)
+       (setf pen-down-p (not pen-down-p))))
+    (:color
+     (setf (turtle-component-color (ec world entity-id 'turtle-component))
+           (turtle-animation-command-data command)))
+    (:speed
+     (setf (turtle-animation-component-speed
+            (ec world entity-id 'turtle-animation-component))
+           (turtle-animation-command-data command)))
+    (:velocity
+     (setf (newtonian-component-velocity (ec world entity-id 'newtonian-component))
+           (turtle-animation-command-data command)))
+    (:force
+     (setf (newtonian-component-force (ec world entity-id 'newtonian-component))
+           (turtle-animation-command-data command)))
+    (:add-force
+     (incf (newtonian-component-force (ec world entity-id 'newtonian-component))
+           (turtle-animation-command-data command)))
+    (:add-mass
+     (incf (newtonian-component-mass (ec world entity-id 'newtonian-component))
+           (turtle-animation-command-data command)))))
+
 (defun activate-turtle-animation (command orientation)
   (with-slots ((pos position) (rot rotation)) orientation
     (ecase (turtle-animation-command-kind command)
@@ -143,7 +140,10 @@
                (turtle-animation-command-direction command)
                (if (zerop angle)
                    (vec3f 0.0 0.0 0.0)
-                   (vec3f/ amount angle)))))))
+                   (vec3f/ amount angle)))))
+      ;; instant commands need no activation setup
+      ((:pen-up :pen-down :pen-toggle :color :speed :velocity :force :add-force :add-mass)
+       nil)))
   command)
 
 (defun finish-turtle-animation (command orientation)
@@ -152,7 +152,10 @@
       (:move
        (setf pos (turtle-animation-command-target command)))
       (:rotate
-       (setf rot (turtle-animation-command-target command)))))
+       (setf rot (turtle-animation-command-target command)))
+      ;; instant commands have no finish state
+      ((:pen-up :pen-down :pen-toggle :color :speed :velocity :force :add-force :add-mass)
+       nil)))
   nil)
 
 (defun update-turtle-move-animation (command orientation speed dt world entity-id)
@@ -206,34 +209,39 @@
                 (when command
                   (activate-turtle-animation command ori)))))
       (when active-command
-        (let ((speed (or (turtle-animation-command-speed active-command)
+        (let ((kind (turtle-animation-command-kind active-command))
+              (speed (or (turtle-animation-command-speed active-command)
                          (current-turtle-animation-speed animation))))
-          (cond ((zerop speed)
-                 (let ((move-command-p
-                         (eq (turtle-animation-command-kind active-command)
-                             :move)))
-                   (when move-command-p
-                     (add-turtle-point :world world :turtle entity-id))
-                   (setf active-command
-                         (finish-turtle-animation active-command ori))
-                   (when move-command-p
-                     (add-turtle-point :world world :turtle entity-id))))
-                ((<= (turtle-animation-command-remaining active-command) 0.0)
-                 (when (eq (turtle-animation-command-kind active-command) :move)
-                   (add-turtle-point :world world :turtle entity-id))
-                 (setf active-command
-                       (finish-turtle-animation active-command ori))
-                 (when (null active-command)
-                   (add-turtle-point :world world :turtle entity-id)))
-                ((eq (turtle-animation-command-kind active-command) :move)
-                 (setf active-command
-                       (update-turtle-move-animation active-command
-                                                     ori speed dt
-                                                     world entity-id)))
-                ((eq (turtle-animation-command-kind active-command) :rotate)
-                 (setf active-command
-                       (update-turtle-rotate-animation active-command
-                                                       ori speed dt)))))))))
+          (cond
+            ;; instant commands execute immediately and finish in one frame
+            ((member kind '(:pen-up :pen-down :pen-toggle :color :speed
+                            :velocity :force :add-force :add-mass))
+             (execute-instant-command active-command world entity-id)
+             (setf active-command nil))
+            ((zerop speed)
+             (let ((move-command-p (eq kind :move)))
+               (when move-command-p
+                 (add-turtle-point :world world :turtle entity-id))
+               (setf active-command
+                     (finish-turtle-animation active-command ori))
+               (when move-command-p
+                 (add-turtle-point :world world :turtle entity-id))))
+            ((<= (turtle-animation-command-remaining active-command) 0.0)
+             (when (eq kind :move)
+               (add-turtle-point :world world :turtle entity-id))
+             (setf active-command
+                   (finish-turtle-animation active-command ori))
+             (when (null active-command)
+               (add-turtle-point :world world :turtle entity-id)))
+            ((eq kind :move)
+             (setf active-command
+                   (update-turtle-move-animation active-command
+                                                 ori speed dt
+                                                 world entity-id)))
+            ((eq kind :rotate)
+             (setf active-command
+                   (update-turtle-rotate-animation active-command
+                                                   ori speed dt)))))))))
 
 (defsystem newtonian-system (orientation-component
                              newtonian-component))
@@ -289,13 +297,12 @@
         (turt (make-turtle-component
                :color color
                :pen-down-p pen-down-p))
-        (mess (make-turtle-message-component))
         (anim (make-turtle-animation-component))
         (newt (make-newtonian-component
                :velocity velocity
                :mass mass
                :force force)))
-    (add-components world e ori turt mess anim newt)
+    (add-components world e ori turt anim newt)
     (setf *turtle* e)
     e))
 

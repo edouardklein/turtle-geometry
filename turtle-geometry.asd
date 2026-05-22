@@ -4,6 +4,9 @@
   :description "Logo in Common Lisp"
   :author "hahahahaman <hahahadude@gmail.com>"
   :license "MIT"
+  :around-compile (lambda (thunk)
+                    (handler-bind ((warning #'muffle-warning))
+                      (funcall thunk)))
   :depends-on (#:alexandria
                #:bordeaux-threads
                #:iterate
