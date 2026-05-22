@@ -80,7 +80,45 @@
     (set-program-matrices (get-program "turtle") :projection matrix)
     (set-program-matrices (get-program "line") :projection matrix)))
 
+(defun fit-camera-to-drawing ()
+  "Compute the bounding box of the current drawing and animate the camera
+so that the entire drawing fits tightly in the viewport."
+  (let ((drawer *line-drawer*))
+    (with-slots (draw-array num-vertices) drawer
+      (when (plusp num-vertices)
+        (let ((min-x most-positive-single-float)
+              (max-x most-negative-single-float)
+              (min-y most-positive-single-float)
+              (max-y most-negative-single-float))
+          (dotimes (i num-vertices)
+            (let ((x (gl-dyn-aref draw-array (* i 7)))
+                  (y (gl-dyn-aref draw-array (+ (* i 7) 1))))
+              (when (< x min-x) (setf min-x x))
+              (when (> x max-x) (setf max-x x))
+              (when (< y min-y) (setf min-y y))
+              (when (> y max-y) (setf max-y y))))
+          (let* ((cx (/ (+ min-x max-x) 2.0))
+                 (cy (/ (+ min-y max-y) 2.0))
+                 (width (- max-x min-x))
+                 (height (- max-y min-y))
+                 ;; tiny margin so lines don't touch the exact edge
+                 (width (* width 1.02))
+                 (height (* height 1.02))
+                 (zoom-rad (kit.glm:deg-to-rad 45.0))
+                 (tan-half (tan (/ zoom-rad 2.0)))
+                 (aspect (cfloat (/ *width* *height*)))
+                 (d-y (/ height (* 2.0 tan-half)))
+                 (d-x (/ width (* 2.0 aspect tan-half)))
+                 (dist (max d-x d-y))
+                 (dist (max dist 1.0))
+                 (target-pos (vec3f (cfloat cx) (cfloat cy) (cfloat dist))))
+            (setf (zoom *camera*) 45.0)
+            (start-camera-animation *camera* target-pos -90.0 0.0 0.5)))))))
+
 (defun handle-camera-input ()
+  (when (slot-value *camera* 'animating)
+    (update-camera-animation *camera* *dt*))
+
   (when (key-pressed-p :scancode-lctrl)
     (when *cursor-callback-p*
       (let ((x-offset (cfloat (- *cursor-x* *last-x*)))
@@ -121,7 +159,12 @@
     (cond ((eq state :keydown)
            (setf (getf *key-pressed* scancode) t))
           ((eq state :keyup)
-           (setf (getf *key-pressed* scancode) nil))))
+           (setf (getf *key-pressed* scancode) nil)))
+
+    ;; Fit camera to drawing on spacebar
+    (when (and (eq state :keydown) (not repeat-p)
+               (eq scancode :scancode-space))
+      (fit-camera-to-drawing)))
 
 
   ;; get camera to directly face the turtle

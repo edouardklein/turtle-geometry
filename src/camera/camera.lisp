@@ -38,8 +38,42 @@
     :initarg :mouse-sensitivity)
    (zoom
     :type single-float
-    :reader zoom
-    :initarg :zoom))
+    :accessor zoom
+    :initarg :zoom)
+   (animating
+    :type boolean
+    :initform nil
+    :initarg :animating)
+   (anim-progress
+    :type single-float
+    :initform 0.0
+    :initarg :anim-progress)
+   (anim-duration
+    :type single-float
+    :initform 0.5
+    :initarg :anim-duration)
+   (anim-start-pos
+    :type vec3f
+    :initarg :anim-start-pos)
+   (anim-target-pos
+    :type vec3f
+    :initarg :anim-target-pos)
+   (anim-start-yaw
+    :type single-float
+    :initform -90.0
+    :initarg :anim-start-yaw)
+   (anim-target-yaw
+    :type single-float
+    :initform -90.0
+    :initarg :anim-target-yaw)
+   (anim-start-pitch
+    :type single-float
+    :initform 0.0
+    :initarg :anim-start-pitch)
+   (anim-target-pitch
+    :type single-float
+    :initform 0.0
+    :initarg :anim-target-pitch))
   (:default-initargs
    :position (vec3f 0.0 0.0 100.0)
    :front (vec3f 0.0 0.0 -1.0)
@@ -106,3 +140,43 @@
       (setf front (kit.glm:normalize new-front)
             right (kit.glm:normalize (kit.glm:cross-product front world-up))
             up (kit.glm:normalize (kit.glm:cross-product right front))))))
+
+(defmethod start-camera-animation ((cam camera) target-pos target-yaw target-pitch
+                                   &optional (duration 0.5))
+  (with-slots (animating anim-progress anim-duration
+               anim-start-pos anim-target-pos
+               anim-start-yaw anim-target-yaw
+               anim-start-pitch anim-target-pitch
+               position yaw pitch) cam
+    (setf animating t
+          anim-progress 0.0
+          anim-duration (cfloat duration)
+          anim-start-pos position
+          anim-target-pos target-pos
+          anim-start-yaw yaw
+          anim-target-yaw target-yaw
+          anim-start-pitch pitch
+          anim-target-pitch target-pitch)))
+
+(defmethod update-camera-animation ((cam camera) dt)
+  (with-slots (animating anim-progress anim-duration
+               anim-start-pos anim-target-pos
+               anim-start-yaw anim-target-yaw
+               anim-start-pitch anim-target-pitch
+               position yaw pitch) cam
+    (when animating
+      (incf anim-progress (cfloat dt))
+      (let ((u (if (>= anim-progress anim-duration)
+                   1.0
+                   (let ((raw (/ anim-progress anim-duration)))
+                     (* raw raw (- 3.0 (* 2.0 raw)))))))
+        (setf position (vec3f+ (vec3f* anim-start-pos (- 1.0 u))
+                               (vec3f* anim-target-pos u))
+              yaw (+ anim-start-yaw (* (- anim-target-yaw anim-start-yaw) u))
+              pitch (+ anim-start-pitch (* (- anim-target-pitch anim-start-pitch) u)))
+        (when (>= anim-progress anim-duration)
+          (setf animating nil
+                position anim-target-pos
+                yaw anim-target-yaw
+                pitch anim-target-pitch)))
+      (update-camera-vectors cam))))
