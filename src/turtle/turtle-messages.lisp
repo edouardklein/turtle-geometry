@@ -60,25 +60,23 @@
     (with-slots (color) (ec w id 'turtle-component)
       (setf color color-vec))))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (shadow "SPEED")
+  (export (find-symbol "SPEED" *package*)))
+
+(defmessage (speed) (speed-value)
+  (lambda (w id)
+    (let ((animation (ec w id 'turtle-animation-component)))
+      (bt:with-lock-held ((turtle-animation-component-command-lock animation))
+        (setf (turtle-animation-component-speed animation)
+              (normalize-turtle-speed speed-value))))))
+
 (defmessage (forward fw) (distance)
   (lambda (w id)
-    (with-slots ((pos position) (rot rotation))
-        (ec w id 'orientation-component)
-      (with-slots (pen-down-p) (ec w id 'turtle-component)
-        (let ((new-pos (vec3f (kit.glm:matrix*vec3
-                               (vec3f 0.0 distance 0.0)
-                               (kit.glm:matrix*
-                                (kit.glm:translate pos)
-                                (kit.glm:rotate rot))))))
-
-          ;; add first point of the line
-          (add-turtle-point :world w :turtle id)
-
-          ;; move turtle's position
-          (setf pos new-pos)
-
-          ;; second point
-          (add-turtle-point :world w :turtle id))))))
+    (enqueue-turtle-animation
+     w id
+     (make-turtle-animation-command :kind :move
+                                    :amount distance))))
 
 (defmacro def-turtle-synonym ((&rest synonyms)
                               (&rest args)
@@ -96,8 +94,10 @@
 
 (defmessage (turtle-rotate rot) (vec)
   (lambda (w id)
-    (with-slots ((rot rotation)) (ec w id 'orientation-component)
-      (setf rot (vec3f+ rot vec)))))
+    (enqueue-turtle-animation
+     w id
+     (make-turtle-animation-command :kind :rotate
+                                    :amount vec))))
 
 (def-turtle-synonym (left lt lf) (radians)
                     (turtle-rotate (vec3f 0.0 0.0 radians)))

@@ -36,7 +36,8 @@ Average time change over a few hundred frames."
 
 (defun update-dt ()
   "Updates time globals."
-  (setf *dt* (/ (- (get-internal-real-time) *previous-time*) 1000.0d0)
+  (setf *dt* (/ (- (get-internal-real-time) *previous-time*)
+                (coerce internal-time-units-per-second 'double-float))
         *previous-time* (get-internal-real-time))
 
   ;; prevent unruly time steps from breaking game

@@ -26,6 +26,20 @@
   (message-list (make-array 8 :fill-pointer 0))
   (message-lock (bt:make-lock "turtle-message-lock")))
 
+(defstruct turtle-animation-command
+  kind
+  amount
+  target
+  direction
+  remaining
+  speed)
+
+(defstruct turtle-animation-component
+  (speed 6 :type integer)
+  active-command
+  (command-list (make-array 8 :fill-pointer 0))
+  (command-lock (bt:make-lock "turtle-animation-lock")))
+
 (defsystem turtle-message-system (turtle-message-component))
 
 (defmethod update-system ((world world)
@@ -48,6 +62,180 @@
                     (t
                      (warn "Sent entity ~a an invalid message type ~a~%"
                            entity-id message-type))))))))))
+
+(defun normalize-turtle-speed (speed)
+  (let ((value (cond ((integerp speed) speed)
+                     ((realp speed) (round speed))
+                     ((or (eq speed :fastest)
+                          (and (stringp speed)
+                               (string-equal speed "fastest")))
+                      0)
+                     ((or (eq speed :slowest)
+                          (and (stringp speed)
+                               (string-equal speed "slowest")))
+                      1)
+                     ((or (eq speed :slow)
+                          (and (stringp speed)
+                               (string-equal speed "slow")))
+                      3)
+                     ((or (eq speed :normal)
+                          (and (stringp speed)
+                               (string-equal speed "normal")))
+                      6)
+                     ((or (eq speed :fast)
+                          (and (stringp speed)
+                               (string-equal speed "fast")))
+                      10)
+                     (t
+                      (error "Unknown turtle speed: ~S" speed)))))
+    (max 0 (min 10 value))))
+
+(defun turtle-linear-speed (speed)
+  (* 25.0 speed))
+
+(defun turtle-angular-speed (speed)
+  (* 1.0 speed))
+
+(defun turtle-forward-position (position rotation distance)
+  (vec3f (kit.glm:matrix*vec3
+          (vec3f 0.0 distance 0.0)
+          (kit.glm:matrix*
+           (kit.glm:translate position)
+           (kit.glm:rotate rotation)))))
+
+(defun enqueue-turtle-animation (world entity-id command)
+  (let ((component (ec world entity-id 'turtle-animation-component)))
+    (bt:with-lock-held ((turtle-animation-component-command-lock component))
+      (unless (turtle-animation-command-speed command)
+        (setf (turtle-animation-command-speed command)
+              (turtle-animation-component-speed component)))
+      (vector-push-extend command
+                          (turtle-animation-component-command-list component)))))
+
+(defun dequeue-turtle-animation (component)
+  (bt:with-lock-held ((turtle-animation-component-command-lock component))
+    (with-slots (command-list) component
+      (when (plusp (length command-list))
+        (prog1 (aref command-list 0)
+          (replace command-list command-list :start1 0 :start2 1)
+          (decf (fill-pointer command-list)))))))
+
+(defun current-turtle-animation-speed (component)
+  (bt:with-lock-held ((turtle-animation-component-command-lock component))
+    (turtle-animation-component-speed component)))
+
+(defun activate-turtle-animation (command orientation)
+  (with-slots ((pos position) (rot rotation)) orientation
+    (ecase (turtle-animation-command-kind command)
+      (:move
+       (let ((distance (turtle-animation-command-amount command)))
+         (setf (turtle-animation-command-target command)
+               (turtle-forward-position pos rot distance)
+               (turtle-animation-command-direction command)
+               (signum distance)
+               (turtle-animation-command-remaining command)
+               (abs distance))))
+      (:rotate
+       (let* ((amount (turtle-animation-command-amount command))
+              (angle (vec3f-length amount)))
+         (setf (turtle-animation-command-target command)
+               (vec3f+ rot amount)
+               (turtle-animation-command-remaining command)
+               angle
+               (turtle-animation-command-direction command)
+               (if (zerop angle)
+                   (vec3f 0.0 0.0 0.0)
+                   (vec3f/ amount angle)))))))
+  command)
+
+(defun finish-turtle-animation (command orientation)
+  (with-slots ((pos position) (rot rotation)) orientation
+    (ecase (turtle-animation-command-kind command)
+      (:move
+       (setf pos (turtle-animation-command-target command)))
+      (:rotate
+       (setf rot (turtle-animation-command-target command)))))
+  nil)
+
+(defun update-turtle-move-animation (command orientation speed dt world entity-id)
+  (with-slots ((pos position) (rot rotation)) orientation
+    (let* ((remaining (turtle-animation-command-remaining command))
+           (step-distance (min remaining (* (turtle-linear-speed speed) dt))))
+      (if (<= remaining step-distance)
+          (progn
+            (add-turtle-point :world world :turtle entity-id)
+            (setf pos (turtle-animation-command-target command))
+            (add-turtle-point :world world :turtle entity-id)
+            nil)
+          (progn
+            (add-turtle-point :world world :turtle entity-id)
+            (setf pos (turtle-forward-position
+                       pos rot
+                       (* (turtle-animation-command-direction command)
+                          step-distance))
+                  (turtle-animation-command-remaining command)
+                  (- remaining step-distance))
+            (add-turtle-point :world world :turtle entity-id)
+            command)))))
+
+(defun update-turtle-rotate-animation (command orientation speed dt)
+  (with-slots ((rot rotation)) orientation
+    (let* ((remaining (turtle-animation-command-remaining command))
+           (step-angle (min remaining (* (turtle-angular-speed speed) dt))))
+      (if (<= remaining step-angle)
+          (finish-turtle-animation command orientation)
+          (progn
+            (setf rot (vec3f+ rot
+                              (vec3f* (turtle-animation-command-direction command)
+                                      step-angle))
+                  (turtle-animation-command-remaining command)
+                  (- remaining step-angle))
+            command)))))
+
+(defsystem turtle-animation-system (orientation-component
+                                    turtle-animation-component))
+
+(defmethod update-system ((world world)
+                          (system turtle-animation-system)
+                          dt)
+  (system-do-with-components ((ori orientation-component)
+                              (animation turtle-animation-component))
+      world system entity-id
+    (with-slots (active-command) animation
+      (unless active-command
+        (setf active-command
+              (let ((command (dequeue-turtle-animation animation)))
+                (when command
+                  (activate-turtle-animation command ori)))))
+      (when active-command
+        (let ((speed (or (turtle-animation-command-speed active-command)
+                         (current-turtle-animation-speed animation))))
+          (cond ((zerop speed)
+                 (let ((move-command-p
+                         (eq (turtle-animation-command-kind active-command)
+                             :move)))
+                   (when move-command-p
+                     (add-turtle-point :world world :turtle entity-id))
+                   (setf active-command
+                         (finish-turtle-animation active-command ori))
+                   (when move-command-p
+                     (add-turtle-point :world world :turtle entity-id))))
+                ((<= (turtle-animation-command-remaining active-command) 0.0)
+                 (when (eq (turtle-animation-command-kind active-command) :move)
+                   (add-turtle-point :world world :turtle entity-id))
+                 (setf active-command
+                       (finish-turtle-animation active-command ori))
+                 (when (null active-command)
+                   (add-turtle-point :world world :turtle entity-id)))
+                ((eq (turtle-animation-command-kind active-command) :move)
+                 (setf active-command
+                       (update-turtle-move-animation active-command
+                                                     ori speed dt
+                                                     world entity-id)))
+                ((eq (turtle-animation-command-kind active-command) :rotate)
+                 (setf active-command
+                       (update-turtle-rotate-animation active-command
+                                                       ori speed dt)))))))))
 
 (defsystem newtonian-system (orientation-component
                              newtonian-component))
@@ -104,11 +292,12 @@
                :color color
                :pen-down-p pen-down-p))
         (mess (make-turtle-message-component))
+        (anim (make-turtle-animation-component))
         (newt (make-newtonian-component
                :velocity velocity
                :mass mass
                :force force)))
-    (add-components world e ori turt mess newt)
+    (add-components world e ori turt mess anim newt)
     (setf *turtle* e)
     e))
 
