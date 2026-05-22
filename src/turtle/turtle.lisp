@@ -29,7 +29,8 @@
   (command-lock (bt:make-lock "turtle-animation-lock")))
 
 (defun normalize-turtle-speed (speed)
-  (let ((value (cond ((integerp speed) speed)
+  (let ((value (cond ((null speed) 0)
+                     ((integerp speed) speed)
                      ((realp speed) (round speed))
                      ((or (eq speed :fastest)
                           (and (stringp speed)
@@ -71,9 +72,6 @@
 (defun enqueue-turtle-animation (world entity-id command)
   (let ((component (ec world entity-id 'turtle-animation-component)))
     (bt:with-lock-held ((turtle-animation-component-command-lock component))
-      (unless (turtle-animation-command-speed command)
-        (setf (turtle-animation-command-speed command)
-              (turtle-animation-component-speed component)))
       (vector-push-extend command
                           (turtle-animation-component-command-list component)))))
 
@@ -203,45 +201,55 @@
                               (animation turtle-animation-component))
       world system entity-id
     (with-slots (active-command) animation
-      (unless active-command
-        (setf active-command
-              (let ((command (dequeue-turtle-animation animation)))
-                (when command
-                  (activate-turtle-animation command ori)))))
-      (when active-command
+      (loop
+        ;; Dequeue next command if idle
+        (unless active-command
+          (setf active-command
+                (let ((command (dequeue-turtle-animation animation)))
+                  (when command
+                    (activate-turtle-animation command ori)))))
+        ;; Nothing to do?
+        (unless active-command
+          (return))
+        ;; Process the active command
         (let ((kind (turtle-animation-command-kind active-command))
-              (speed (or (turtle-animation-command-speed active-command)
-                         (current-turtle-animation-speed animation))))
+              (speed (current-turtle-animation-speed animation)))
           (cond
-            ;; instant commands execute immediately and finish in one frame
+            ;; instant commands execute immediately and loop
             ((member kind '(:pen-up :pen-down :pen-toggle :color :speed
                             :velocity :force :add-force :add-mass))
              (execute-instant-command active-command world entity-id)
              (setf active-command nil))
+            ;; speed 0 = finish immediately and loop
             ((zerop speed)
              (let ((move-command-p (eq kind :move)))
                (when move-command-p
                  (add-turtle-point :world world :turtle entity-id))
-               (setf active-command
-                     (finish-turtle-animation active-command ori))
+               (finish-turtle-animation active-command ori)
                (when move-command-p
-                 (add-turtle-point :world world :turtle entity-id))))
-            ((<= (turtle-animation-command-remaining active-command) 0.0)
-             (when (eq kind :move)
-               (add-turtle-point :world world :turtle entity-id))
-             (setf active-command
-                   (finish-turtle-animation active-command ori))
-             (when (null active-command)
-               (add-turtle-point :world world :turtle entity-id)))
-            ((eq kind :move)
-             (setf active-command
-                   (update-turtle-move-animation active-command
-                                                 ori speed dt
-                                                 world entity-id)))
-            ((eq kind :rotate)
-             (setf active-command
-                   (update-turtle-rotate-animation active-command
-                                                   ori speed dt)))))))))
+                 (add-turtle-point :world world :turtle entity-id))
+               (setf active-command nil)))
+            ;; Normal animated command: step once by dt
+            (t
+             (cond
+               ((<= (turtle-animation-command-remaining active-command) 0.0)
+                (when (eq kind :move)
+                  (add-turtle-point :world world :turtle entity-id))
+                (setf active-command
+                      (finish-turtle-animation active-command ori))
+                (when (null active-command)
+                  (add-turtle-point :world world :turtle entity-id)))
+               ((eq kind :move)
+                (setf active-command
+                      (update-turtle-move-animation active-command
+                                                    ori speed dt
+                                                    world entity-id)))
+               ((eq kind :rotate)
+                (setf active-command
+                      (update-turtle-rotate-animation active-command
+                                                      ori speed dt))))
+             ;; For animated commands we only step once per frame
+             (return))))))))
 
 (defsystem newtonian-system (orientation-component
                              newtonian-component))
