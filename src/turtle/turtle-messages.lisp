@@ -17,9 +17,10 @@
                                (turtle *turtle*))
   (if (and (is-entity-p world turtle)
            (has-component-p world turtle 'turtle-message-component))
-      (vector-push-extend message (turtle-message-component-message-list
-                                   (ec world turtle
-                                       'turtle-message-component)))
+      (let ((component (ec world turtle 'turtle-message-component)))
+        (bt:with-lock-held ((turtle-message-component-message-lock component))
+          (vector-push-extend message
+                              (turtle-message-component-message-list component))))
       (warn "Entity ~A doesn't have a message component. Entity's existence is ~A.~%"
             turtle
             (is-entity-p world turtle))))
