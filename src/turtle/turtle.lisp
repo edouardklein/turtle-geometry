@@ -56,12 +56,10 @@
       (when messages
         (run-thread
           (iter (for message in-vector messages)
-            (let ((message-type (type-of message)))
-              (cond ((equal message-type 'function)
-                     (funcall message world entity-id))
-                    (t
-                     (warn "Sent entity ~a an invalid message type ~a~%"
-                           entity-id message-type))))))))))
+            (if (functionp message)
+                (funcall message world entity-id)
+                (warn "Sent entity ~a an invalid message type ~a~%"
+                      entity-id (type-of message)))))))))
 
 (defun normalize-turtle-speed (speed)
   (let ((value (cond ((integerp speed) speed)
