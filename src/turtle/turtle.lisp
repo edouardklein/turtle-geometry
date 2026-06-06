@@ -270,7 +270,10 @@
                       (update-turtle-rotate-animation active-command
                                                       ori speed dt))))
              ;; For animated commands we only step once per frame
-             (return))))))))
+             (return)))))))
+  ;; Auto-fit camera to the drawing after each animation step.
+  (when (and *auto-fit-camera* *line-drawer* (fboundp 'fit-camera-to-drawing))
+    (fit-camera-to-drawing)))
 
 (defsystem newtonian-system (orientation-component
                              newtonian-component))

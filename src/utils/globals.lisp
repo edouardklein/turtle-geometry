@@ -131,6 +131,9 @@ keep track of vec types that have been defined
 |#
 (defparameter *vec-types* '())
 
+;; auto-fit camera after each animation step
+(defglobal *auto-fit-camera* t)
+
 ;; turtle geometry things
 
 (defglobal *project-directory* (asdf:system-source-directory :turtle-geometry))

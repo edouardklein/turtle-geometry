@@ -10,7 +10,7 @@
 
 * Utilities — =src/utils/=
 
-- [[file:src/utils/globals.lisp][globals.lisp]] :: Global state declarations via =defglobal= macro (resets, screen dims, input state, delta-time, managers, camera, drawers, world, turtle, etc.). Sets up project paths for shaders, textures, and fonts.
+- [[file:src/utils/globals.lisp][globals.lisp]] :: Global state declarations via =defglobal= macro (resets, screen dims, input state, delta-time, managers, camera, drawers, world, turtle, etc.). Sets up project paths for shaders, textures, and fonts. Includes =*auto-fit-camera*= (default =t=) which causes the camera to refit to the drawing after each animation step.
 - [[file:src/utils/timer.lisp][timer.lisp]] :: Simple =timer= struct with =timer-ended-p=, =timer-update=, =timer-reset=, and =timer-keep-overflow=.
 - [[file:src/utils/vec.lisp][vec.lisp]] :: Macro-heavy optimized vector math. =define-vecn= creates typed N-D vector types (e.g. =vec3f=, =vec2i=) with element-wise +, -, *, /, mul, div, length, dot, normalize, clamp, distance. Defines x/y/z/w accessors.
 - [[file:src/utils/gl-dynamic-array.lisp][gl-dynamic-array.lisp]] :: =gl-dynamic-array= class wrapping an OpenGL gl-array with automatic capacity expansion. Provides =gl-dyn-aref=, =gl-dyn-push=, and byte-size utilities.
@@ -38,7 +38,7 @@
 
 * Main window
 
-- [[file:src/main.lisp][main.lisp]] :: =turtle-window= subclass of =sdl2.kit:gl-window=. Initializes OpenGL state, managers, camera, line/turtle drawers, and ECS systems. Defines the render loop (=render-objects=, =update=), camera input handling (=handle-camera-input=), =fit-camera-to-drawing= (auto-frame the camera to the bounding box of drawn lines), and SDL2 event methods (keyboard, mouse, resize). =run= starts the application.
+- [[file:src/main.lisp][main.lisp]] :: =turtle-window= subclass of =sdl2.kit:gl-window=. Initializes OpenGL state, managers, camera, line/turtle drawers, and ECS systems. Defines the render loop (=render-objects=, =update=), camera input handling (=handle-camera-input=), =fit-camera-to-drawing= (auto-frame the camera to the bounding box of drawn lines), and SDL2 event methods (keyboard, mouse, resize). =run= starts the application. Keyboard =f= toggles the global =*auto-fit-camera*= flag.
 
 * Events (not loaded)
 

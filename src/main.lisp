@@ -112,7 +112,9 @@ so that the entire drawing fits tightly in the viewport."
                  (dist (max dist 1.0))
                  (target-pos (vec3f (cfloat cx) (cfloat cy) (cfloat dist))))
             (setf (zoom *camera*) 45.0)
-            (start-camera-animation *camera* target-pos -90.0 0.0 0.5)))))))
+            (if (slot-value *camera* 'animating)
+                (retarget-camera-animation *camera* target-pos -90.0 0.0)
+                (start-camera-animation *camera* target-pos -90.0 0.0 0.5))))))))
 
 (defun handle-camera-input ()
   (when (slot-value *camera* 'animating)
@@ -163,7 +165,13 @@ so that the entire drawing fits tightly in the viewport."
     ;; Fit camera to drawing on spacebar
     (when (and (eq state :keydown) (not repeat-p)
                (eq scancode :scancode-space))
-      (fit-camera-to-drawing)))
+      (fit-camera-to-drawing))
+
+    ;; Toggle auto-fit camera on / off with 'f'
+    (when (and (eq state :keydown) (not repeat-p)
+               (eq scancode :scancode-f))
+      (setf *auto-fit-camera* (not *auto-fit-camera*))
+      (format t "Auto-fit camera: ~A~%" *auto-fit-camera*)))
 
 
   ;; get camera to directly face the turtle

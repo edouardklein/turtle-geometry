@@ -158,6 +158,24 @@
           anim-start-pitch pitch
           anim-target-pitch target-pitch)))
 
+(defmethod retarget-camera-animation ((cam camera) target-pos target-yaw target-pitch)
+  "Update the animation endpoints while preserving progress.
+This avoids restarting the easing curve from zero velocity."
+  (with-slots (animating anim-start-pos anim-target-pos
+               anim-start-yaw anim-target-yaw
+               anim-start-pitch anim-target-pitch
+               position yaw pitch) cam
+    (when animating
+      ;; Snap the start points to the camera's current interpolated
+      ;; position so there is no positional discontinuity when the
+      ;; target changes.
+      (setf anim-start-pos position
+            anim-target-pos target-pos
+            anim-start-yaw yaw
+            anim-target-yaw target-yaw
+            anim-start-pitch pitch
+            anim-target-pitch target-pitch))))
+
 (defmethod update-camera-animation ((cam camera) dt)
   (with-slots (animating anim-progress anim-duration
                anim-start-pos anim-target-pos
