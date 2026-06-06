@@ -113,3 +113,56 @@
   (enqueue-turtle-animation
    world turtle
    (make-turtle-animation-command :kind :add-mass :data mass)))
+
+;; ---------------------------------------------------------------------------
+;; SVG export
+;; ---------------------------------------------------------------------------
+
+(defun export-svg (filepath &key (world *world*) (turtle *turtle*))
+  "Export the turtle's logical drawing path to an SVG file.
+The SVG contains only the user-given path (no animation intermediates)."
+  (let* ((turt (ec world turtle 'turtle-component))
+         (subpaths (reverse (turtle-component-svg-subpaths turt)))
+         (current (reverse (turtle-component-svg-current-subpath turt)))
+         (all-subpaths (if current (append subpaths (list current)) subpaths)))
+    (with-open-file (stream filepath :direction :output
+                            :if-exists :supersede
+                            :if-does-not-exist :create)
+      (format stream "<?xml version=\"1.0\" encoding=\"UTF-8\"?>~%")
+      (format stream "<svg xmlns=\"http://www.w3.org/2000/svg\" ")
+      ;; Compute viewBox
+      (let ((min-x most-positive-single-float)
+            (max-x most-negative-single-float)
+            (min-y most-positive-single-float)
+            (max-y most-negative-single-float))
+        (dolist (subpath all-subpaths)
+          (dolist (pt subpath)
+            (let ((x (x-val pt))
+                  (y (y-val pt)))
+              (setf min-x (min min-x x)
+                    max-x (max max-x x)
+                    min-y (min min-y y)
+                    max-y (max max-y y)))))
+        (when (or (= min-x most-positive-single-float)
+                  (null all-subpaths))
+          (setf min-x 0 max-x 100 min-y 0 max-y 100))
+        (let* ((padding 10.0)
+               (vb-x (- min-x padding))
+               (vb-y (- (- max-y) padding))
+               (vb-w (+ (- max-x min-x) (* 2 padding)))
+               (vb-h (+ (- max-y min-y) (* 2 padding))))
+          (format stream "viewBox=\"~,3f ~,3f ~,3f ~,3f\" " vb-x vb-y vb-w vb-h)
+          (format stream "width=\"100%\" height=\"100%\">~%")))
+      ;; Draw subpaths
+      (dolist (subpath all-subpaths)
+        (when (cdr subpath) ;; at least 2 points
+          (format stream "  <path d=\"M ~,3f ~,3f "
+                  (x-val (first subpath))
+                  (- (y-val (first subpath))))
+          (dolist (pt (rest subpath))
+            (format stream "L ~,3f ~,3f "
+                    (x-val pt)
+                    (- (y-val pt))))
+          (format stream "\" fill=\"none\" stroke=\"black\" stroke-width=\"1\" />~%")))
+      (format stream "</svg>~%"))
+    filepath))

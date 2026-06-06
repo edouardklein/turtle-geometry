@@ -27,6 +27,8 @@ the package:
 (ql:quickload :turtle-geometry)
 ;; Or:
 (require :asdf)
+;; When developping, push the current dir so that asdf will find the latest code
+(push (uiop:getcwd) asdf:*central-registry*)
 (asdf:load-system :turtle-geometry)
 
 ```

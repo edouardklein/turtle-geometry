@@ -90,8 +90,7 @@
   :description "turtle-geometry.tests"
   :author "hahahahaman <hahahadude@gmail.com>"
   :license "MIT"
-  :depends-on (#:turtle-geometry
-               #:simple-testing)
+  :depends-on (#:turtle-geometry)
   :serial t
   :pathname "t/"
   :components ((:file "package")

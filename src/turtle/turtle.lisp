@@ -5,7 +5,12 @@
   (rotation (vec3f 0.0) :type vec3f))
 (defstruct turtle-component
   (color (vec4f 0.0) :type vec4f)
-  (pen-down-p t :type boolean))
+  (pen-down-p t :type boolean)
+  ;; svg-path stores a list of sub-paths (each sub-path is a list of
+  ;; vec3f points in reverse chronological order).  svg-current-subpath
+  ;; holds the active sub-path being built while the pen is down.
+  (svg-subpaths nil :type list)
+  (svg-current-subpath nil :type list))
 
 ;; keeps track of velocity and force in the forward direction
 (defstruct newtonian-component
@@ -91,12 +96,19 @@
   "Execute a non-animated command immediately."
   (ecase (turtle-animation-command-kind command)
     (:pen-up
-     (setf (turtle-component-pen-down-p (ec world entity-id 'turtle-component)) nil))
+     (setf (turtle-component-pen-down-p (ec world entity-id 'turtle-component)) nil)
+     (turtle-svg-finalize-subpath world entity-id))
     (:pen-down
-     (setf (turtle-component-pen-down-p (ec world entity-id 'turtle-component)) t))
+     (let ((turt (ec world entity-id 'turtle-component)))
+       (unless (turtle-component-pen-down-p turt)
+         (setf (turtle-component-pen-down-p turt) t)
+         (turtle-svg-start-subpath world entity-id))))
     (:pen-toggle
-     (with-slots (pen-down-p) (ec world entity-id 'turtle-component)
-       (setf pen-down-p (not pen-down-p))))
+     (let ((turt (ec world entity-id 'turtle-component)))
+       (setf (turtle-component-pen-down-p turt) (not (turtle-component-pen-down-p turt)))
+       (if (turtle-component-pen-down-p turt)
+           (turtle-svg-start-subpath world entity-id)
+           (turtle-svg-finalize-subpath world entity-id))))
     (:color
      (setf (turtle-component-color (ec world entity-id 'turtle-component))
            (turtle-animation-command-data command)))
@@ -198,7 +210,8 @@
                           (system turtle-animation-system)
                           dt)
   (system-do-with-components ((ori orientation-component)
-                              (animation turtle-animation-component))
+                              (animation turtle-animation-component)
+                              (turt turtle-component))
       world system entity-id
     (with-slots (active-command) animation
       (loop
@@ -224,7 +237,9 @@
             ((zerop speed)
              (let ((move-command-p (eq kind :move)))
                (when move-command-p
-                 (add-turtle-point :world world :turtle entity-id))
+                 (add-turtle-point :world world :turtle entity-id)
+                 (when (turtle-component-pen-down-p turt)
+                   (turtle-svg-extend-subpath world entity-id)))
                (finish-turtle-animation active-command ori)
                (when move-command-p
                  (add-turtle-point :world world :turtle entity-id))
@@ -234,7 +249,9 @@
              (cond
                ((<= (turtle-animation-command-remaining active-command) 0.0)
                 (when (eq kind :move)
-                  (add-turtle-point :world world :turtle entity-id))
+                  (add-turtle-point :world world :turtle entity-id)
+                  (when (turtle-component-pen-down-p turt)
+                    (turtle-svg-extend-subpath world entity-id)))
                 (setf active-command
                       (finish-turtle-animation active-command ori))
                 (when (null active-command)
@@ -243,7 +260,11 @@
                 (setf active-command
                       (update-turtle-move-animation active-command
                                                     ori speed dt
-                                                    world entity-id)))
+                                                    world entity-id))
+                ;; Record final SVG point when move finishes in one step
+                (when (and (null active-command)
+                           (turtle-component-pen-down-p turt))
+                  (turtle-svg-extend-subpath world entity-id)))
                ((eq kind :rotate)
                 (setf active-command
                       (update-turtle-rotate-animation active-command
@@ -288,6 +309,28 @@
                      :color color)))))
 
 
+(defun turtle-svg-start-subpath (world entity-id)
+  "Start a new SVG sub-path at the turtle's current position."
+  (let* ((ori (ec world entity-id 'orientation-component))
+         (turt (ec world entity-id 'turtle-component))
+         (pos (copy-seq (orientation-component-position ori))))
+    (setf (turtle-component-svg-current-subpath turt) (list pos))))
+
+(defun turtle-svg-extend-subpath (world entity-id)
+  "Append the turtle's current position to the active SVG sub-path."
+  (let* ((ori (ec world entity-id 'orientation-component))
+         (turt (ec world entity-id 'turtle-component))
+         (pos (copy-seq (orientation-component-position ori))))
+    (push pos (turtle-component-svg-current-subpath turt))))
+
+(defun turtle-svg-finalize-subpath (world entity-id)
+  "Move the active sub-path to the completed sub-paths list."
+  (let ((turt (ec world entity-id 'turtle-component)))
+    (when (turtle-component-svg-current-subpath turt)
+      (push (turtle-component-svg-current-subpath turt)
+            (turtle-component-svg-subpaths turt))
+      (setf (turtle-component-svg-current-subpath turt) nil))))
+
 (defun make-turtle (&key
                       (position (vec3f 0.0 0.0 0.0))
                       (rotation (vec3f 0.0 0.0 0.0))
@@ -311,6 +354,8 @@
                :mass mass
                :force force)))
     (add-components world e ori turt anim newt)
+    (when pen-down-p
+      (turtle-svg-start-subpath world e))
     (setf *turtle* e)
     e))
 

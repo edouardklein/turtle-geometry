@@ -1,0 +1,51 @@
+#+title: turtle-geometry Source Manifest
+
+* System definition
+
+- [[file:turtle-geometry.asd][turtle-geometry.asd]] :: ASDF system definition. Declares the =turtle-geometry= runtime system (OpenGL/SDL2 based Logo environment) and the =turtle-geometry.tests= test system. Lists dependencies: alexandria, bordeaux-threads, iterate, cl-fad, cl-opengl, glkit, sdl2, sdl2-ttf, sdl2kit, trivial-garbage, trivial-main-thread, defenum, and qua (ECS).
+
+* Package
+
+- [[file:src/package.lisp][src/package.lisp]] :: Defines the =#:turtle-geometry= package, using =:cl=, =:iterate=, =:kit.sdl2=, and =:qua=. Exports =run=.
+
+* Utilities — =src/utils/=
+
+- [[file:src/utils/globals.lisp][globals.lisp]] :: Global state declarations via =defglobal= macro (resets, screen dims, input state, delta-time, managers, camera, drawers, world, turtle, etc.). Sets up project paths for shaders, textures, and fonts.
+- [[file:src/utils/timer.lisp][timer.lisp]] :: Simple =timer= struct with =timer-ended-p=, =timer-update=, =timer-reset=, and =timer-keep-overflow=.
+- [[file:src/utils/vec.lisp][vec.lisp]] :: Macro-heavy optimized vector math. =define-vecn= creates typed N-D vector types (e.g. =vec3f=, =vec2i=) with element-wise +, -, *, /, mul, div, length, dot, normalize, clamp, distance. Defines x/y/z/w accessors.
+- [[file:src/utils/gl-dynamic-array.lisp][gl-dynamic-array.lisp]] :: =gl-dynamic-array= class wrapping an OpenGL gl-array with automatic capacity expansion. Provides =gl-dyn-aref=, =gl-dyn-push=, and byte-size utilities.
+- [[file:src/utils/utils.lisp][utils.lisp]] :: Miscellany: dt/fps limiting, global init/clear, sequence-to-gl-array helpers, random helpers, pi constants, nested slot accessor macro, file I/O, threading macro (=->=), list utils (=drop-nth=, =set-nth=, =plist-set=), manager init, shader matrix setters (=set-program-matrices=, =set-program-perspective=, =set-program-orthographic=), timer-based =defrender= / =defupdate= macros, and =run-thread=.
+- [[file:src/utils/input.lisp][input.lisp]] :: Keyboard and mouse input predicates: =key-pressed-p=, =key-action-p=, =mouse-button-pressed-p=, =mouse-button-action-p=.
+- [[file:src/utils/program.lisp][program.lisp]] :: OpenGL shader program wrapper. =program= class, shader file loading/compilation, program linking, and attribute/uniform lookup helpers. =make-program= creates a linked program from vertex/fragment/optional geometry shader paths.
+- [[file:src/utils/resource-manager.lisp][resource-manager.lisp]] :: Base =resource-manager= class with generic =load-resource= / =get-resource= / =clear-resources= backed by an equal hash table.
+- [[file:src/utils/program-manager.lisp][program-manager.lisp]] :: =program-manager= subclass of resource-manager. Adds OpenGL program cleanup on load/replace and =clear-resources=.
+
+* Camera — =src/camera/=
+
+- [[file:src/camera/camera.lisp][camera.lisp]] :: FPS-style 3D camera with position, front/up/right vectors, yaw/pitch, zoom, movement speed, and mouse sensitivity. Supports directional movement, rotation from mouse deltas, scroll zoom, and a smooth animated transition (=start-camera-animation= / =update-camera-animation= with easing).
+
+* Drawer — =src/drawer/=
+
+- [[file:src/drawer/drawer.lisp][drawer.lisp]] :: Base =drawer= class holding a shader =program= and VAO.
+- [[file:src/drawer/line-drawer.lisp][line-drawer.lisp]] :: =line-drawer= subclass that accumulates turtle-drawn line vertices in a =gl-dynamic-array= and renders them as =:lines= with interleaved position/color attributes.
+- [[file:src/drawer/turtle-drawer.lisp][turtle-drawer.lisp]] :: =turtle-drawer= subclass that creates a hard-coded 3D arrow/pyramid VBO and draws it with model matrix transforms (position, rotation, scale, color).
+
+* Turtle geometry — =src/turtle/=
+
+- [[file:src/turtle/turtle.lisp][turtle.lisp]] :: Entity Component System integration for the turtle. Defines =orientation-component=, =turtle-component=, =newtonian-component=, =turtle-animation-command=, and =turtle-animation-component=. Implements =turtle-animation-system= (queued command playback: move/rotate/pen/color/speed/physics), =newtonian-system= (semi-implicit Euler integration), and =turtle-drawer-system= (renders the turtle mesh). Also =make-turtle= and =add-turtle-point= / =add-turtle-data= helpers that stream pen-down vertices into the line drawer. Since the animation system interpolates movement and adds many intermediate points to the OpenGL line drawer, =turtle-component= also tracks a separate logical SVG path (=svg-subpaths= / =svg-current-subpath=) that only records segment endpoints, producing a minimal path for export.
+- [[file:src/turtle/turtle-messages.lisp][turtle-messages.lisp]] :: User-facing Logo-like commands (=forward= / =fw=, =back= / =bk=, =left= / =lt=, =right= / =rt=, =roll=, =pitch=, =yaw=, =pen-up=, =pen-down=, =pen-toggle=, =color=, =speed=, =velocity=, =force=, =add-force=, =add-mass=, =clear= / =clr=). All commands enqueue =turtle-animation-command= objects into the ECS animation queue. Defines synonym macros (=defsynonym=) for short aliases. Also provides =export-svg= which writes the turtle's logical drawing path (no animation intermediates) to an SVG file.
+- [[file:src/turtle/shapes.lisp][shapes.lisp]] :: Higher-level shape procedures from /Turtle Geometry/ and experiments: =square=, =ngon=, =arcr= / =arcl=, =squiggle=, =petal=, =flower=, =ray=, =sun=, =poly=, =newpoly=, =polyspi-side=, =polyspi-angle=, =recursive-poly=, =strange-poly=, =exponentials=, =timed-color=, etc. Contains extensive commentary on intrinsic vs extrinsic geometry and procedural vs equational descriptions.
+
+* Main window
+
+- [[file:src/main.lisp][main.lisp]] :: =turtle-window= subclass of =sdl2.kit:gl-window=. Initializes OpenGL state, managers, camera, line/turtle drawers, and ECS systems. Defines the render loop (=render-objects=, =update=), camera input handling (=handle-camera-input=), =fit-camera-to-drawing= (auto-frame the camera to the bounding box of drawn lines), and SDL2 event methods (keyboard, mouse, resize). =run= starts the application.
+
+* Events (not loaded)
+
+- [[file:src/event.lisp][event.lisp]] :: Defines a simple priority-based event queue using =vector-push-extend= on =*destructive-changes*=. Provides =add-event= macro, =defevent= macro, and =update-events=. Currently not included in the ASDF module list.
+
+* Tests — =t/=
+
+- [[file:t/package.lisp][t/package.lisp]] :: Package definition for =turtle-geometry.tests=, using =:simple-testing=.
+- [[file:t/tests.lisp][t/tests.lisp]] :: Stub test file. Defines =run-all-tests= and an ASDF =test-op= perform method that calls it. No actual tests implemented yet.
+- [[file:test.lisp][test.lisp]] :: Standalone scratch REPL snippets demonstrating turtle commands (spirograph-like patterns, arcs, etc.).
