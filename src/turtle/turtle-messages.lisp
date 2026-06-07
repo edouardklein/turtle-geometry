@@ -163,6 +163,7 @@ The SVG contains only the user-given path (no animation intermediates)."
             (format stream "L ~,3f ~,3f "
                     (x-val pt)
                     (- (y-val pt))))
-          (format stream "\" fill=\"none\" stroke=\"black\" stroke-width=\"1\" />~%")))
+          (format stream "\" fill=\"none\" stroke=\"black\" stroke-width=\"~A\" />~%"
+                  *svg-stroke-width*)))
       (format stream "</svg>~%"))
     filepath))

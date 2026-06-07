@@ -148,3 +148,6 @@ keep track of vec types that have been defined
 (defglobal *turtle*)
 (defglobal *turtle-drawer*)
 (defglobal *line-drawer*)
+
+(defglobal *svg-stroke-width* 1.0
+  "Stroke width used when exporting SVG drawings via EXPORT-SVG.")
