@@ -59,7 +59,7 @@
                       10)
                      (t
                       (error "Unknown turtle speed: ~S" speed)))))
-    (max 0 (min 10 value))))
+    (max 0 value)))
 
 (defun turtle-linear-speed (speed)
   (* 25.0 speed))
@@ -237,12 +237,12 @@
             ((zerop speed)
              (let ((move-command-p (eq kind :move)))
                (when move-command-p
+                 (add-turtle-point :world world :turtle entity-id))
+               (finish-turtle-animation active-command ori)
+               (when move-command-p
                  (add-turtle-point :world world :turtle entity-id)
                  (when (turtle-component-pen-down-p turt)
                    (turtle-svg-extend-subpath world entity-id)))
-               (finish-turtle-animation active-command ori)
-               (when move-command-p
-                 (add-turtle-point :world world :turtle entity-id))
                (setf active-command nil)))
             ;; Normal animated command: step once by dt
             (t
